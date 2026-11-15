@@ -1,0 +1,4 @@
+# Linkliste für brew p94-link (Formel p94-hello)
+format 1
+unit    lib/systemd/user/p94-hello.service
+config  share/p94-hello/hello.conf  p94-hello/hello.conf

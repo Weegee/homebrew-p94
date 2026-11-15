@@ -1,0 +1,9 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[lint.per-file-ignores]
+# The Ruby template contains lines that mirror the generated formula.
+"lib/p94brew/steamos.py" = ["E501"]

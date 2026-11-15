@@ -1,0 +1,6 @@
+[Unit]
+Description=p94-hello (Testformel von homebrew-p94)
+
+[Service]
+Type=oneshot
+ExecStart=@BINDIR@/p94-hello --unit

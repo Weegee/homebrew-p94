@@ -1,0 +1,11 @@
+#!/usr/bin/python3 -I
+"""Entry point of `p94-brew-migrate` (homebrew-p94)."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from p94brew import migrate  # noqa: E402
+
+migrate.main_entry()

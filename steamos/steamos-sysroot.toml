@@ -1,0 +1,12 @@
+# Paketliste für die erzeugte Formel steamos-sysroot. Ändern, committen, dann brew p94-sync.
+formula = "steamos-sysroot"
+desc = "C- und Kernel-Header aus SteamOS für Homebrews gcc und clang"
+gcc_links = true
+
+[[package]]
+name = "glibc"
+headers = true
+
+[[package]]
+name = "linux-api-headers"
+headers = true

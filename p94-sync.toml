@@ -1,0 +1,7 @@
+# Konfiguration für brew p94-sync.
+# Die Formeln der Werkzeuge (claude-tools und andere) schreibt die CI von Weegee/p94 nach jeder
+# Veröffentlichung in diesen Tap. Quellen für brew p94-sync sind deshalb nicht mehr nötig; wer eigene
+# Quellprojekte holen will, trägt sie als [[source]] mit name und url ein.
+
+[steamos]
+lists = ["steamos/steamos-sysroot.toml", "steamos/steamos-tools.toml", "steamos/steamos-pyside.toml"]

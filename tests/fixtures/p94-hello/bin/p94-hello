@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+"""p94-hello: Testprogramm der Testformel von homebrew-p94."""
+
+import sys
+
+VERSION = "20261104.01"
+
+HELP = """\
+Aufruf: p94-hello [--version | --unit | --help]
+
+Testprogramm der Formel p94-hello aus homebrew-p94.
+
+Optionen:
+  --unit       die Probe der Unit ausgeben
+  --version    Version zeigen
+  -h, --help   diese Hilfe
+
+Beispiel:
+  p94-hello --version
+"""
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        print("Hallo von p94-hello")
+    elif argv == ["--version"]:
+        print(f"p94-hello {VERSION}")
+    elif argv == ["--unit"]:
+        print("p94-hello unit ok")
+    elif argv in (["--help"], ["-h"]):
+        print(HELP, end="")
+    else:
+        print(f"p94-hello: Fehler: unbekannte Option: {' '.join(argv)}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

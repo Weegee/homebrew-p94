@@ -1,0 +1,17 @@
+# Paketliste für die generierte Formel steamos-tools. Ändern, committen, dann brew p94-sync.
+formula = "steamos-tools"
+desc = "Werkzeuge aus dem SteamOS-Spiegel ohne eigene Homebrew-Formel"
+
+[[package]]
+name = "ethtool"
+bin = ["ethtool"]
+test = ["ethtool", "--version"]
+
+[[package]]
+name = "turbostat"
+bin = ["turbostat"]
+test = ["turbostat", "--version"]
+
+[[package]]
+name = "libva-utils"
+bin = ["vainfo"]

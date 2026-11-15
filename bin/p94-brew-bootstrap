@@ -1,0 +1,851 @@
+#!/usr/bin/env bash
+# p94-brew-bootstrap: install Homebrew into /home/linuxbrew/.linuxbrew and wire up the tap weegee/p94.
+# Every step checks first whether it is already done, so a second run changes nothing.
+# SC2034: the step arrays are read through namerefs, PUSH and NO_CHEZMOI by the shell step (plan 003).
+# shellcheck disable=SC2034
+set -euo pipefail
+
+PROG=${0##*/}
+SCRIPT=$(readlink -f "${BASH_SOURCE[0]}")
+PROJECT_DIR=$(dirname "$(dirname "$SCRIPT")")
+VERSION=$(<"$PROJECT_DIR/VERSION")
+
+PREFIX=/home/linuxbrew/.linuxbrew
+BREW=$PREFIX/bin/brew
+TAP=weegee/p94
+# Homebrew/install pinned to one commit; the checksums come from research.md 3.1.
+INSTALL_COMMIT=959bdd728192d78c47287c177796c3d86d111f09
+INSTALL_SHA256=5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148
+UNINSTALL_SHA256=60cd24138f98095ae6e34fd5e5fae46a0f04971ef6ebb12cea6dac7bc681d25e
+RAW_URL=https://raw.githubusercontent.com/Homebrew/install/$INSTALL_COMMIT
+
+RED='' YEL='' GRN='' BLD='' OFF='' OK='OK' WARN='WARNUNG'
+# Deviation from FAR-4: the program setting is HOMEBREW_P94_COLOR, shared with the brew commands.
+COLOR=${HOMEBREW_P94_COLOR:-auto}
+use_color() { # $1: file descriptor
+    case $COLOR in always) return 0 ;; never) return 1 ;; esac
+    [[ -z ${NO_COLOR:-} && -z ${HOMEBREW_NO_COLOR:-} ]] || return 1
+    [[ -z ${FORCE_COLOR:-} || $FORCE_COLOR == 0 ]] || return 0
+    [[ ${TERM:-dumb} != dumb && -t $1 ]]
+}
+err() { printf '%s: %sFehler:%s %s\n' "$PROG" "$RED" "$OFF" "$*" >&2; }
+warn() { printf '%s: %sWarnung:%s %s\n' "$PROG" "$YEL" "$OFF" "$*" >&2; }
+note() { ((QUIET)) || printf '%s%s%s %s\n' "$GRN" "$OK" "$OFF" "$*" >&2; }
+info() { ((QUIET)) || printf '%s\n' "$*" >&2; }
+fail() {
+    err "$@"
+    exit 1
+}
+usage_error() {
+    err "$@"
+    printf 'Hilfe: %s --help\n' "$PROG" >&2
+    exit 2
+}
+plural() { if (($1 == 1)); then printf '%s %s' "$1" "$2"; else printf '%s %s' "$1" "$3"; fi; }
+
+usage() {
+    cat <<'EOF'
+Aufruf: p94-brew-bootstrap [OPTIONEN]
+        p94-brew-bootstrap --uninstall [-y] [OPTIONEN]
+
+Richtet Homebrew in /home/linuxbrew/.linuxbrew ein, bindet
+den lokalen Tap weegee/p94 und die Shell ein und
+installiert Toolchain, base-devel und die Prüfwerkzeuge.
+Jeder Schritt prüft zuerst, ob er schon erledigt ist;
+ein zweiter Lauf ändert nichts.
+
+Optionen:
+  -n, --dry-run      zeigt jeden Schritt, ändert nichts
+      --push         auch den chezmoi-Commit pushen
+      --no-chezmoi   Shell-Einbindung überspringen
+      --uninstall    alles entfernen, was er angelegt hat
+  -y, --yes          ohne Rückfrage
+  -q, --quiet        nur Fehler ausgeben
+  -v, --verbose      mehr ausgeben
+      --color=WANN   auto, always oder never
+  -h, --help         diese Hilfe
+  -V, --version      Version
+
+Beispiele:
+  p94-brew-bootstrap --dry-run
+  p94-brew-bootstrap --push
+  p94-brew-bootstrap --uninstall --dry-run
+
+Exit-Status: 0 Erfolg, 1 Fehler, 2 falscher Aufruf.
+EOF
+}
+
+DRY_RUN=0 QUIET=0 VERBOSE=0 YES=0 PUSH=0 NO_CHEZMOI=0 UNINSTALL=0
+args=()
+while (($#)); do
+    case $1 in
+        -h | --help) usage; exit 0 ;;
+        -V | --version) printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
+        -n | --dry-run) DRY_RUN=1 ;;
+        --push) PUSH=1 ;;
+        --no-chezmoi) NO_CHEZMOI=1 ;;
+        --uninstall) UNINSTALL=1 ;;
+        -y | --yes) YES=1 ;;
+        -q | --quiet) QUIET=1 ;;
+        -v | --verbose) VERBOSE=$((VERBOSE + 1)) ;;
+        --color=*)
+            COLOR=${1#*=}
+            [[ $COLOR =~ ^(auto|always|never)$ ]] ||
+                usage_error "--color erwartet auto, always oder never, nicht '$COLOR'"
+            ;;
+        --color)
+            [[ $# -ge 2 ]] || usage_error "--color erwartet auto, always oder never"
+            set -- "--color=$2" "${@:3}"
+            continue
+            ;;
+        --) shift; args+=("$@"); break ;;
+        -[!-]?*) set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;; # -qn becomes -q -n
+        -*) usage_error "unbekannte Option: $1" ;;
+        *) args+=("$1") ;;
+    esac
+    shift
+done
+((${#args[@]} == 0)) || usage_error "unerwartetes Argument: ${args[0]}"
+[[ $COLOR =~ ^(auto|always|never)$ ]] ||
+    usage_error "HOMEBREW_P94_COLOR erwartet auto, always oder never, nicht '$COLOR'"
+
+if use_color 2; then RED=$'\e[31m' YEL=$'\e[33m' GRN=$'\e[32m' BLD=$'\e[1m' OFF=$'\e[0m'; fi
+case ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} in
+    *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) OK='✓' WARN='⚠' ;;
+esac
+
+# --- cleanup and signals (SIG-1, SIG-4) ---------------------------------------------------------
+
+TMP=''
+cleanup() {
+    [[ -z $TMP ]] || rm -rf -- "$TMP"
+    TMP=''
+}
+on_signal() { # $1: INT or TERM
+    trap - "$1"
+    printf '\n%s: abgebrochen\n' "$PROG" >&2
+    cleanup
+    kill -s "$1" "$$"
+}
+trap cleanup EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
+
+# --- helpers ------------------------------------------------------------------------------------
+
+confirm() { # $1: question; default no (EIN-1, EIN-3, GEF-2)
+    ((YES)) && return 0
+    [[ -t 0 && -t 2 ]] || usage_error "Rückfrage ohne Terminal nicht möglich; --yes bestätigt"
+    local a
+    while :; do
+        read -r -p "$1 [j/N] " a || return 1
+        case ${a,,} in
+            j | ja | y | yes) return 0 ;;
+            '' | n | nein | no) return 1 ;;
+        esac
+    done
+}
+
+# Run a command that changes something; its output goes to stderr, hidden with --quiet unless it fails.
+run() {
+    if ((QUIET)); then
+        local out
+        out=$("$@" 2>&1) || {
+            printf '%s\n' "$out" >&2
+            return 1
+        }
+    else
+        "$@" >&2
+    fi
+}
+
+# as_root WHY COMMAND...: sudo without a prompt where possible, with a prompt on a terminal, else an error
+# that carries the command to copy.
+as_root() {
+    local why=$1
+    shift
+    if sudo -n true 2>/dev/null; then
+        run sudo -n "$@"
+    elif [[ -t 0 && -t 2 ]]; then
+        run sudo "$@"
+    else
+        fail "sudo nötig, um $why. Im Terminal ausführen: sudo $*"
+    fi
+}
+
+need_tmp() {
+    [[ -n $TMP ]] || TMP=$(mktemp -d)
+}
+
+# download URL FILE SHA256: fetch and verify; nothing is executed before the checksum matches.
+download_checked() {
+    local url=$1 file=$2 sha=$3 name
+    name=$(basename "$file")
+    curl -fsSL --retry 3 -o "$file" "$url" || fail "$name ließ sich nicht laden ($url); Netzwerk prüfen."
+    printf '%s  %s\n' "$sha" "$file" | sha256sum -c --quiet >/dev/null 2>&1 ||
+        fail "$name hat eine andere Prüfsumme als erwartet; nichts ausgeführt. Commit und sha256 im Skript prüfen."
+}
+
+CHANGED=0 DONE=0 RESULT='' STATE=''
+result_changed() { STATE=geändert RESULT=$1; }
+result_done() { STATE=erledigt RESULT=$1; }
+result_checked() { STATE=geprüft RESULT=$1; }
+result_would() { STATE=würde RESULT=$1; }
+result_warning() { STATE=warnung RESULT=$1; }
+
+# run_steps STEPS_ARRAY TITLES_ARRAY: header, run, result line and counters for every step.
+run_steps() {
+    local -n steps=$1 titles=$2
+    local i m=${#steps[@]}
+    for ((i = 0; i < m; i++)); do
+        info "${BLD}Schritt $((i + 1))/$m: ${titles[i]}${OFF}"
+        RESULT='' STATE=''
+        "${steps[i]}"
+        case $STATE in
+            würde)
+                info "${titles[i]}: $RESULT"
+                CHANGED=$((CHANGED + 1))
+                ;;
+            geändert)
+                note "${titles[i]}: $RESULT"
+                CHANGED=$((CHANGED + 1))
+                ;;
+            erledigt)
+                note "${titles[i]}: $RESULT"
+                DONE=$((DONE + 1))
+                ;;
+            geprüft) note "${titles[i]}: $RESULT" ;;
+            warnung) info "${YEL}${WARN}${OFF} ${titles[i]}: $RESULT" ;;
+            *) fail "interner Fehler: Schritt ${steps[i]} meldet kein Ergebnis" ;;
+        esac
+    done
+}
+
+summary() {
+    if ((DRY_RUN)); then
+        local verb='Schritte würden'
+        ((CHANGED == 1)) && verb='Schritt würde'
+        info "Trockenlauf beendet: $CHANGED $verb etwas ändern, $DONE schon erledigt."
+    else
+        local verb='Schritte'
+        ((CHANGED == 1)) && verb='Schritt'
+        note "Fertig: $CHANGED $verb geändert, $DONE schon erledigt."
+    fi
+}
+
+tap_dir() { printf '%s/Library/Taps/weegee/homebrew-p94' "$("$BREW" --repository)"; }
+
+# --- install steps ------------------------------------------------------------------------------
+
+step_prereq() {
+    local id='' cmd
+    [[ -r /etc/os-release ]] && id=$(. /etc/os-release && printf '%s' "${ID:-}")
+    [[ $id == steamos ]] || fail "gebaut für SteamOS, gefunden: ID=${id:-?} in /etc/os-release."
+    ((EUID != 0)) || fail "als root nicht möglich; als normaler Benutzer ausführen (sudo wird bei Bedarf gerufen)."
+    for cmd in git curl bsdtar sha256sum; do
+        command -v "$cmd" >/dev/null 2>&1 || fail "Befehl $cmd fehlt; ohne ihn lässt sich Homebrew nicht einrichten."
+    done
+    [[ -x /usr/bin/python3 ]] || fail "/usr/bin/python3 fehlt; die brew-Befehle des Taps brauchen es."
+    result_checked "erfüllt"
+}
+
+step_prefix() {
+    local user group
+    user=$(id -un)
+    group=$(id -gn)
+    if [[ -d $PREFIX && -O $PREFIX && -O /home/linuxbrew ]]; then
+        result_done "schon vorhanden ($PREFIX, Besitzer $user)"
+    elif ((DRY_RUN)); then
+        result_would "würde anlegen: $PREFIX (mit sudo)"
+    else
+        as_root "/home/linuxbrew anzulegen" \
+            install -d -o "$user" -g "$group" -m 0755 /home/linuxbrew "$PREFIX"
+        result_changed "angelegt ($PREFIX)"
+    fi
+}
+
+step_homebrew() {
+    if [[ -x $BREW ]]; then
+        result_done "schon installiert ($("$BREW" --version | sed -n 1p))"
+    elif ((DRY_RUN)); then
+        result_would "würde installieren (install.sh von Commit ${INSTALL_COMMIT:0:7}, Prüfsumme wird geprüft)"
+    else
+        need_tmp
+        info "Homebrew wird geladen und installiert; das dauert einige Minuten."
+        download_checked "$RAW_URL/install.sh" "$TMP/install.sh" "$INSTALL_SHA256"
+        run env NONINTERACTIVE=1 /bin/bash "$TMP/install.sh" ||
+            fail "install.sh endete mit einem Fehler (Ausgabe oben)."
+        [[ -x $BREW ]] || fail "$BREW fehlt nach der Installation."
+        if [[ ! -e $PREFIX/etc/bash_completion.d/brew ]]; then
+            run "$BREW" completions link || warn "brew completions link schlug fehl."
+        fi
+        result_changed "installiert ($("$BREW" --version | sed -n 1p))"
+    fi
+}
+
+step_tap() {
+    local dir origin want branch before after
+    want=$(readlink -f "$PROJECT_DIR")
+    if [[ ! -x $BREW ]]; then
+        result_would "würde einbinden aus $want (Homebrew fehlt noch)"
+        return 0
+    fi
+    dir=$(tap_dir)
+    if [[ ! -d $dir ]]; then
+        if ((DRY_RUN)); then
+            result_would "würde einbinden aus $want"
+            return 0
+        fi
+        run "$BREW" tap "$TAP" "$want" || fail "brew tap $TAP $want schlug fehl (Ausgabe oben)."
+        run "$BREW" trust --tap "$TAP" || fail "brew trust --tap $TAP schlug fehl (Ausgabe oben)."
+        result_changed "eingebunden aus $want"
+        return 0
+    fi
+    origin=$(readlink -f "$(git -C "$dir" remote get-url origin)")
+    if [[ -n $(git -C "$dir" status --porcelain) ]]; then
+        fail "der Tap-Klon $dir hat uncommittete Änderungen; prüfen mit: git -C $dir status"
+    fi
+    branch=$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
+    branch=${branch#origin/}
+    if [[ $origin == "$want" ]]; then
+        if ((DRY_RUN)); then
+            result_done "schon eingebunden ($dir)"
+            return 0
+        fi
+        before=$(git -C "$dir" rev-parse HEAD)
+        git -C "$dir" fetch --quiet origin
+        [[ -z $branch ]] || git -C "$dir" merge --ff-only --quiet "origin/$branch" ||
+            fail "der Tap-Klon $dir lässt sich nicht vorspulen; prüfen mit: git -C $dir status"
+        run "$BREW" trust --tap "$TAP" || fail "brew trust --tap $TAP schlug fehl (Ausgabe oben)."
+        after=$(git -C "$dir" rev-parse HEAD)
+        if [[ $before == "$after" ]]; then
+            result_done "schon eingebunden ($dir)"
+        else
+            result_changed "vorgespult auf ${after:0:7}"
+        fi
+    else
+        if ((DRY_RUN)); then
+            result_would "würde origin umstellen auf $want (bisher $origin)"
+            return 0
+        fi
+        git -C "$dir" remote set-url origin "$want"
+        git -C "$dir" fetch --quiet origin
+        git -C "$dir" remote set-head origin --auto >/dev/null
+        branch=$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD)
+        branch=${branch#origin/}
+        git -C "$dir" checkout --quiet -B "$branch" "origin/$branch"
+        run "$BREW" trust --tap "$TAP" || fail "brew trust --tap $TAP schlug fehl (Ausgabe oben)."
+        result_changed "origin umgestellt auf $want"
+    fi
+}
+
+brew_has() { # $1: formula; true when any version is installed
+    [[ -n $("$BREW" list --versions "$1" 2>/dev/null) ]]
+}
+
+brew_pinned() { # $1: formula
+    "$BREW" list --pinned 2>/dev/null | grep -qx "$1"
+}
+
+toolchain_ok() {
+    "$BREW" p94-toolchain check -q >/dev/null 2>&1
+}
+
+# Homebrew refuses every source install while bin/gcc and bin/clang are missing, and the sysroot is what
+# provides bin/gcc. For that one install a temporary bin/clang link stands in (README, Toolchain).
+install_sysroot() {
+    local stub=$PREFIX/bin/clang gcc_bin made=0 rc=0
+    if [[ ! -e $stub && ! -e $PREFIX/bin/gcc ]]; then
+        gcc_bin=$(printf '%s\n' "$PREFIX"/opt/gcc/bin/gcc-[0-9]* | sort -V | tail -n 1)
+        [[ -e $gcc_bin ]] || fail "gcc fehlt unter $PREFIX/opt/gcc; erst brew install --skip-post-install gcc."
+        ln -s "../opt/gcc/bin/${gcc_bin##*/}" "$stub"
+        made=1
+    fi
+    run "$BREW" install "$TAP/steamos-sysroot" || rc=$?
+    ((!made)) || rm -f "$stub"
+    ((rc == 0)) || fail "brew install $TAP/steamos-sysroot schlug fehl (Ausgabe oben)."
+}
+
+step_toolchain() {
+    local dir before after pending done_list=()
+    if [[ ! -x $BREW ]]; then
+        result_would "würde gcc, steamos-sysroot und die Toolchain einrichten (Homebrew fehlt noch)"
+        return 0
+    fi
+    dir=$(tap_dir)
+    if ((DRY_RUN)); then
+        pending=()
+        [[ ! -d $dir ]] && pending+=("Tap")
+        brew_has gcc || pending+=("gcc installieren")
+        brew_pinned gcc || pending+=("gcc anheften")
+        brew_has steamos-sysroot || pending+=("steamos-sysroot installieren")
+        if ((${#pending[@]} == 0)) && ! toolchain_ok; then
+            pending+=("p94-toolchain setup")
+        fi
+        if ((${#pending[@]} == 0)); then
+            result_done "schon eingerichtet"
+        else
+            result_would "würde einrichten (${pending[*]})"
+        fi
+        return 0
+    fi
+    before=$(git -C "$dir" rev-parse HEAD)
+    run "$BREW" p94-sync --steamos-only || fail "brew p94-sync --steamos-only schlug fehl (Ausgabe oben)."
+    after=$(git -C "$dir" rev-parse HEAD)
+    [[ $before == "$after" ]] || done_list+=("Spiegel-Formeln erneuert")
+    if ! brew_has gcc; then
+        info "gcc wird geladen; das dauert einige Minuten."
+        run "$BREW" install --skip-post-install gcc || fail "brew install --skip-post-install gcc schlug fehl (Ausgabe oben)."
+        done_list+=("gcc installiert")
+    fi
+    if ! brew_pinned gcc; then
+        run "$BREW" pin gcc || fail "brew pin gcc schlug fehl (Ausgabe oben)."
+        done_list+=("gcc angeheftet")
+    fi
+    if ! brew_has steamos-sysroot; then
+        install_sysroot
+        done_list+=("steamos-sysroot installiert")
+    fi
+    if ! toolchain_ok; then
+        run "$BREW" p94-toolchain setup || fail "brew p94-toolchain setup schlug fehl (Ausgabe oben)."
+        done_list+=("setup")
+    fi
+    if ((${#done_list[@]} == 0)); then
+        result_done "schon eingerichtet"
+    else
+        local joined
+        joined=$(IFS=,; printf '%s' "${done_list[*]}")
+        result_changed "eingerichtet (${joined//,/, })"
+    fi
+}
+
+step_basedevel() {
+    local brewfile=$PROJECT_DIR/Brewfile
+    if [[ ! -x $BREW ]]; then
+        result_would "würde das Brewfile installieren (Homebrew fehlt noch)"
+        return 0
+    fi
+    if "$BREW" bundle check --file "$brewfile" --no-upgrade >/dev/null 2>&1; then
+        result_done "schon installiert"
+    elif ((DRY_RUN)); then
+        result_would "würde installieren (brew bundle install --file $brewfile)"
+    else
+        info "Das Brewfile wird installiert; das dauert je nach Netz mehrere Minuten."
+        run "$BREW" bundle install --file "$brewfile" --no-upgrade ||
+            fail "brew bundle install schlug fehl (Ausgabe oben); nach der Behebung den Bootstrap erneut starten."
+        # clang (llvm) may have arrived with the Brewfile: it needs its configuration
+        toolchain_ok || run "$BREW" p94-toolchain setup || warn "brew p94-toolchain setup schlug fehl."
+        result_changed "installiert"
+    fi
+}
+
+# The gems of brew style, audit and test have native extensions. Homebrew starts them with the search path
+# /usr/bin:/bin:/usr/sbin:/sbin (bin/brew), where it finds no compiler from the prefix; so bundle runs here
+# with the prefix in the path (README, Toolchain).
+DEVTOOL_GROUPS='ast audit formula_test style'
+
+devtools_bundle() { # $@: bundle arguments
+    local lib ruby_bin gem_home
+    lib=$("$BREW" --repository)/Library/Homebrew
+    ruby_bin=$lib/vendor/portable-ruby/current/bin
+    gem_home=$lib/vendor/bundle/ruby/$("$ruby_bin/ruby" -e 'print RbConfig::CONFIG["ruby_version"]')
+    env PATH="$ruby_bin:$PREFIX/bin:/usr/bin:/bin" GEM_HOME="$gem_home" GEM_PATH="$gem_home" \
+        BUNDLE_GEMFILE="$lib/Gemfile" BUNDLE_FROZEN=true BUNDLE_WITH="$DEVTOOL_GROUPS" TMPDIR=/var/tmp \
+        "$ruby_bin/bundle" "$@"
+}
+
+devtools_ready() {
+    local groups_file group
+    groups_file=$("$BREW" --repository)/Library/Homebrew/vendor/bundle/ruby/.homebrew_gem_groups
+    [[ -r $groups_file ]] || return 1
+    for group in $DEVTOOL_GROUPS; do
+        grep -qx "$group" "$groups_file" || return 1
+    done
+    devtools_bundle check >/dev/null 2>&1
+}
+
+step_devtools() {
+    if [[ ! -x $BREW ]]; then
+        result_would "würde die Prüfwerkzeuge laden (Homebrew fehlt noch)"
+    elif devtools_ready; then
+        result_done "schon geladen"
+    elif ((DRY_RUN)); then
+        result_would "würde Ruby-Gems für brew style, audit und test laden"
+    else
+        info "Die Ruby-Gems für brew style, audit und test werden geladen und übersetzt; das dauert einige Minuten."
+        # records the gem groups; its own bundle install may fail without a compiler in Homebrew's path
+        "$BREW" install-bundler-gems --add-groups=audit,formula_test,style >/dev/null 2>&1 || true
+        run devtools_bundle install ||
+            fail "bundle install für die Prüfwerkzeuge schlug fehl (Ausgabe oben); gcc und make unter $PREFIX/bin prüfen."
+        run "$BREW" install-bundler-gems --add-groups=audit,formula_test,style ||
+            fail "brew install-bundler-gems schlug fehl (Ausgabe oben)."
+        run "$BREW" style --formula "$TAP/steamos-sysroot" ||
+            fail "brew style --formula $TAP/steamos-sysroot meldet Befunde (Ausgabe oben)."
+        run "$BREW" audit --formula "$TAP/steamos-sysroot" ||
+            fail "brew audit --formula $TAP/steamos-sysroot meldet Befunde (Ausgabe oben)."
+        result_changed "geladen"
+    fi
+}
+
+step_finish() {
+    if [[ ! -x $BREW ]]; then
+        result_checked "übersprungen (Homebrew fehlt noch)"
+        return 0
+    fi
+    if ((DRY_RUN)); then
+        result_checked "brew doctor und brew p94-toolchain check im Trockenlauf übersprungen"
+        return 0
+    fi
+    # sbin is in the PATH of the shell integration, but not yet in the shell that started the bootstrap
+    if PATH="$PREFIX/bin:$PREFIX/sbin:$PATH" "$BREW" doctor >&2; then
+        result_checked "brew doctor ohne Befunde"
+    else
+        result_warning "brew doctor meldet Befunde (oben)"
+    fi
+    "$BREW" p94-toolchain check -q >/dev/null || warn "brew p94-toolchain check meldet Befunde; Einzelheiten: brew p94-toolchain check"
+    info "Neue Shell öffnen: exec bash -l"
+}
+
+# --- shell integration through chezmoi ----------------------------------------------------------
+
+SHELL_MARK_BEGIN='# >>> homebrew-p94 >>>'
+SHELL_MARK_END='# <<< homebrew-p94 <<<'
+SHELL_COMMIT_MSG='bash, fish: Homebrew-Einbindung für SteamOS (homebrew-p94)'
+# project file | path below the chezmoi source dir | target relative to $HOME
+SHELL_FILES=(
+    'shell/homebrew.bash|dot_config/bash/homebrew.bash|.config/bash/homebrew.bash'
+    'shell/homebrew.fish|dot_config/fish/conf.d/homebrew.fish|.config/fish/conf.d/homebrew.fish'
+    'shell/60-homebrew.conf|dot_config/environment.d/60-homebrew.conf|.config/environment.d/60-homebrew.conf'
+)
+
+shell_bashrc_block() {
+    cat <<'EOF'
+# >>> homebrew-p94 >>>
+# Homebrew only where it is installed (SteamOS); see the homebrew-p94 tap (github.com/Weegee/homebrew-p94)
+[[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/bash/homebrew.bash" ]] &&
+    source "${XDG_CONFIG_HOME:-$HOME/.config}/bash/homebrew.bash"
+# <<< homebrew-p94 <<<
+EOF
+}
+
+shell_ignore_block() {
+    cat <<'EOF'
+# >>> homebrew-p94 >>>
+# Homebrew-Einbindung nur auf SteamOS, siehe den Tap homebrew-p94 (github.com/Weegee/homebrew-p94)
+{{- if ne .chezmoi.osRelease.id "steamos" }}
+.config/bash/homebrew.bash
+.config/fish/conf.d/homebrew.fish
+.config/environment.d/60-homebrew.conf
+{{- end }}
+# <<< homebrew-p94 <<<
+EOF
+}
+
+# shell_context: set SRC (chezmoi source dir) and REPO (its git root), or fail.
+shell_context() {
+    command -v chezmoi >/dev/null 2>&1 ||
+        fail "chezmoi fehlt; ohne chezmoi lässt sich die Shell-Einbindung nicht einrichten (--no-chezmoi überspringt sie)."
+    SRC=$(chezmoi source-path) || fail "chezmoi source-path schlug fehl."
+    REPO=$(git -C "$SRC" rev-parse --show-toplevel) ||
+        fail "die chezmoi-Quelle $SRC liegt in keinem Git-Repository."
+}
+
+# shell_targets: the files chezmoi writes for the integration (absolute paths, one per line).
+shell_targets() {
+    local entry from to target
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        printf '%s\n' "$HOME/$target"
+    done
+    printf '%s\n' "$HOME/.config/bash/bashrc"
+}
+
+# shell_paths: the paths below REPO that the commit may contain.
+shell_paths() {
+    local entry from to target
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        printf 'home/%s\n' "$to"
+    done
+    printf '%s\n' home/dot_config/bash/bashrc home/.chezmoiignore
+}
+
+# shell_require_clean: the commit must contain only our paths.
+shell_require_clean() {
+    [[ -z $(git -C "$REPO" status --porcelain) ]] ||
+        fail "chezmoi-Quelle hat uncommittete Änderungen; erst committen oder verwerfen (git -C $REPO status)."
+    [[ -z $(chezmoi diff "$HOME/.config/bash/bashrc") ]] ||
+        fail "$HOME/.config/bash/bashrc weicht von der chezmoi-Quelle ab; prüfen mit: chezmoi diff $HOME/.config/bash/bashrc"
+}
+
+# shell_commit: commit exactly the integration paths and push with --push; sets SHELL_SHA.
+shell_commit() {
+    local paths
+    mapfile -t paths < <(shell_paths)
+    git -C "$REPO" add -- "${paths[@]}"
+    git -C "$REPO" commit -q -m "$SHELL_COMMIT_MSG" -- "${paths[@]}"
+    SHELL_SHA=$(git -C "$REPO" rev-parse --short HEAD)
+    shell_push
+}
+
+shell_push() {
+    ((PUSH)) || return 0
+    git -C "$REPO" push --quiet >&2 ||
+        fail "git push schlug fehl; der Commit bleibt lokal. Später: git -C $REPO push"
+}
+
+shell_ahead_with_our_commit() {
+    git -C "$REPO" log '@{u}..HEAD' --format=%s 2>/dev/null | grep -qxF "$SHELL_COMMIT_MSG"
+}
+
+# shell_apply: let chezmoi write the targets.
+shell_apply() {
+    local targets
+    mapfile -t targets < <(shell_targets)
+    if ((VERBOSE)); then chezmoi diff "${targets[@]}" >&2 || true; fi
+    run chezmoi apply "${targets[@]}" || fail "chezmoi apply schlug fehl (Ausgabe oben)."
+}
+
+step_shell() {
+    if ((NO_CHEZMOI)); then
+        result_checked "übersprungen (--no-chezmoi)"
+        return 0
+    fi
+    local SRC REPO SHELL_SHA='' entry from to target todo=() item targets
+    shell_context
+    local bashrc=$SRC/dot_config/bash/bashrc ignore=$SRC/.chezmoiignore
+    need_tmp
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        cmp -s "$PROJECT_DIR/$from" "$SRC/$to" 2>/dev/null || todo+=("kopieren: $to")
+    done
+    grep -qxF "$SHELL_MARK_BEGIN" "$bashrc" || todo+=("Block einfügen: dot_config/bash/bashrc")
+    grep -qxF "$SHELL_MARK_BEGIN" "$ignore" || todo+=("Block einfügen: .chezmoiignore")
+    local source_change=0
+    ((${#todo[@]} == 0)) || source_change=1
+    if ((!source_change)); then
+        mapfile -t targets < <(shell_targets)
+        if [[ -n $(chezmoi diff "${targets[@]}" 2>/dev/null) ]]; then
+            todo+=("anwenden: chezmoi apply")
+        elif ((PUSH)) && shell_ahead_with_our_commit; then
+            todo+=("pushen: git -C $REPO push")
+        fi
+    fi
+    if ((${#todo[@]} == 0)); then
+        result_done "schon eingerichtet"
+        return 0
+    fi
+    if ((DRY_RUN)); then
+        for item in "${todo[@]}"; do info "würde $item"; done
+        if ((source_change)); then
+            info "würde committen: $SHELL_COMMIT_MSG"
+            ((PUSH)) && info "würde pushen: git -C $REPO push"
+        fi
+        result_would "würde die Einbindung einrichten (${#todo[@]} Schritte, siehe oben)"
+        return 0
+    fi
+    if ((!source_change)); then
+        case ${todo[0]} in
+            anwenden*)
+                shell_apply
+                result_changed "angewendet (chezmoi apply)"
+                ;;
+            *)
+                shell_push
+                result_changed "gepusht"
+                ;;
+        esac
+        return 0
+    fi
+    shell_require_clean
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        install -D -m 0644 "$PROJECT_DIR/$from" "$SRC/$to"
+    done
+    if ! grep -qxF "$SHELL_MARK_BEGIN" "$bashrc"; then
+        shell_bashrc_block >"$TMP/bashrc.block"
+        awk -v blk="$TMP/bashrc.block" '
+            { print }
+            seen && !done && $0 == "fi" {
+                print ""
+                while ((getline l < blk) > 0) print l
+                done = 1
+            }
+            /environment-d-generator/ { seen = 1 }
+        ' "$bashrc" >"$TMP/bashrc.new"
+        if cmp -s "$bashrc" "$TMP/bashrc.new"; then
+            fail "Anker für den Block in $bashrc nicht gefunden (Zeile 'fi' nach environment-d-generator); nichts geschrieben."
+        fi
+        cat "$TMP/bashrc.new" >"$bashrc"
+    fi
+    if ! grep -qxF "$SHELL_MARK_BEGIN" "$ignore"; then
+        {
+            printf '\n'
+            shell_ignore_block
+        } >>"$ignore"
+    fi
+    shell_apply
+    shell_commit
+    result_changed "eingerichtet (chezmoi-Commit $SHELL_SHA)"
+}
+
+# uninstall_shell: drop the marked blocks and the three files from the chezmoi source and the targets.
+uninstall_shell() {
+    if ((NO_CHEZMOI)) || ! command -v chezmoi >/dev/null 2>&1; then
+        result_done "schon erledigt (keine Shell-Einbindung angelegt)"
+        return 0
+    fi
+    local SRC REPO SHELL_SHA='' entry from to target todo=() item targets
+    shell_context
+    local bashrc=$SRC/dot_config/bash/bashrc ignore=$SRC/.chezmoiignore
+    need_tmp
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        [[ ! -e $SRC/$to ]] || todo+=("löschen: $to")
+        [[ ! -e $HOME/$target ]] || todo+=("löschen: ~/$target")
+    done
+    grep -qxF "$SHELL_MARK_BEGIN" "$bashrc" && todo+=("Block entfernen: dot_config/bash/bashrc")
+    grep -qxF "$SHELL_MARK_BEGIN" "$ignore" && todo+=("Block entfernen: .chezmoiignore")
+    if ((${#todo[@]} == 0)); then
+        result_done "schon erledigt (keine Shell-Einbindung angelegt)"
+        return 0
+    fi
+    if ((DRY_RUN)); then
+        for item in "${todo[@]}"; do info "würde $item"; done
+        info "würde committen: $SHELL_COMMIT_MSG (entfernen)"
+        ((PUSH)) && info "würde pushen: git -C $REPO push"
+        result_would "würde die Einbindung entfernen (${#todo[@]} Schritte, siehe oben)"
+        return 0
+    fi
+    shell_require_clean
+    local file
+    for file in "$bashrc" "$ignore"; do
+        # drop the marked block and the one blank line in front of it
+        awk -v b="$SHELL_MARK_BEGIN" -v e="$SHELL_MARK_END" '
+            $0 == b { skipping = 1; if (held) held = 0; next }
+            skipping { if ($0 == e) skipping = 0; next }
+            { if (held) print ""; if ($0 == "") { held = 1 } else { held = 0; print } }
+            END { if (held) print "" }
+        ' "$file" >"$TMP/strip.new"
+        cat "$TMP/strip.new" >"$file"
+    done
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        rm -f -- "$SRC/$to"
+    done
+    run chezmoi apply "$HOME/.config/bash/bashrc" || fail "chezmoi apply schlug fehl (Ausgabe oben)."
+    for entry in "${SHELL_FILES[@]}"; do
+        IFS='|' read -r from to target <<<"$entry"
+        rm -f -- "$HOME/$target"
+    done
+    local paths
+    mapfile -t paths < <(shell_paths)
+    git -C "$REPO" add -A -- "${paths[@]}"
+    git -C "$REPO" commit -q -m "bash, fish: Homebrew-Einbindung entfernt (homebrew-p94)" -- "${paths[@]}"
+    shell_push
+    result_changed "entfernt (chezmoi-Commit $(git -C "$REPO" rev-parse --short HEAD))"
+}
+
+# The arrays are read through namerefs in run_steps.
+STEPS=(step_prereq step_prefix step_homebrew step_tap step_shell step_toolchain step_basedevel step_devtools step_finish)
+TITLES=(Voraussetzungen Prefix Homebrew Tap Shell-Einbindung Toolchain base-devel Prüfwerkzeuge Abschluss)
+
+# --- uninstall steps ----------------------------------------------------------------------------
+
+un_confirm() {
+    if ((DRY_RUN)); then
+        result_would "würde fragen: Homebrew samt aller Formeln aus $PREFIX entfernen?"
+    elif confirm "Homebrew samt aller Formeln aus $PREFIX entfernen?"; then
+        result_checked "bestätigt"
+    else
+        info "Abgebrochen; nichts geändert."
+        exit 1
+    fi
+}
+
+un_links() {
+    if [[ -x $BREW ]] && "$BREW" commands --quiet 2>/dev/null | grep -qx 'p94-link'; then
+        if ((DRY_RUN)); then
+            result_would "würde ausführen: brew p94-link --remove"
+        else
+            run "$BREW" p94-link --remove || warn "brew p94-link --remove schlug fehl (Ausgabe oben)."
+            result_changed "Links entfernt"
+        fi
+    else
+        result_done "schon erledigt (brew p94-link nicht vorhanden)"
+    fi
+}
+
+un_untrust() {
+    if [[ -x $BREW ]] && "$BREW" tap 2>/dev/null | grep -qx "$TAP"; then
+        if ((DRY_RUN)); then
+            result_would "würde ausführen: brew untrust --tap $TAP"
+        else
+            run "$BREW" untrust --tap "$TAP" || warn "brew untrust --tap $TAP schlug fehl (Ausgabe oben)."
+            result_changed "Vertrauen für $TAP entzogen"
+        fi
+    else
+        result_done "schon erledigt (Tap nicht eingebunden)"
+    fi
+}
+
+un_homebrew() {
+    if [[ ! -x $BREW ]]; then
+        result_done "schon entfernt"
+    elif ((DRY_RUN)); then
+        result_would "würde uninstall.sh von Commit ${INSTALL_COMMIT:0:7} laden, prüfen und ausführen"
+    else
+        need_tmp
+        download_checked "$RAW_URL/uninstall.sh" "$TMP/uninstall.sh" "$UNINSTALL_SHA256"
+        run env NONINTERACTIVE=1 /bin/bash "$TMP/uninstall.sh" --force ||
+            fail "uninstall.sh endete mit einem Fehler (Ausgabe oben)."
+        result_changed "Homebrew entfernt"
+    fi
+}
+
+un_dirs() {
+    if [[ ! -d /home/linuxbrew ]]; then
+        result_done "schon entfernt"
+    elif ((DRY_RUN)) && [[ -x $BREW ]]; then
+        # uninstall.sh has not run yet, so the prefix is still full.
+        result_would "würde entfernen, sobald Homebrew weg ist: $PREFIX und /home/linuxbrew (mit sudo)"
+    elif [[ -d $PREFIX ]] && [[ -n $(find "$PREFIX" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1 || true) ]]; then
+        warn "$PREFIX ist nicht leer und bleibt; Inhalt prüfen mit: ls -A $PREFIX"
+        result_warning "nicht entfernt (nicht leer)"
+    elif ((DRY_RUN)); then
+        result_would "würde entfernen: $PREFIX und /home/linuxbrew (mit sudo)"
+    else
+        local dirs=()
+        [[ ! -d $PREFIX ]] || dirs+=("$PREFIX")
+        dirs+=(/home/linuxbrew)
+        as_root "/home/linuxbrew zu entfernen" rmdir "${dirs[@]}"
+        result_changed "entfernt (/home/linuxbrew)"
+    fi
+}
+
+un_state() {
+    local d found=()
+    for d in "$HOME/.local/state/p94-link" "$HOME/.cache/p94-sync"; do
+        [[ -e $d ]] && found+=("$d")
+    done
+    if ((${#found[@]} == 0)); then
+        result_done "schon entfernt"
+    elif ((DRY_RUN)); then
+        result_would "würde löschen: ${found[*]}"
+    else
+        rm -rf -- "${found[@]}"
+        result_changed "gelöscht: ${found[*]}"
+    fi
+}
+
+UN_STEPS=(un_confirm un_links uninstall_shell un_untrust un_homebrew un_dirs un_state)
+UN_TITLES=(Rückfrage Links Shell Vertrauen Homebrew Ordner Zustand)
+
+# --- main ---------------------------------------------------------------------------------------
+
+if ((UNINSTALL)); then
+    run_steps UN_STEPS UN_TITLES
+else
+    run_steps STEPS TITLES
+fi
+summary

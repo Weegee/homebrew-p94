@@ -1,0 +1,11 @@
+# Paketliste für die generierte Formel steamos-pyside. Ändern, committen, dann brew p94-sync.
+formula = "steamos-pyside"
+desc = "PySide6 aus dem SteamOS-Spiegel für /usr/bin/python3"
+
+[[package]]
+name = "pyside6"
+root = true
+
+[[package]]
+name = "shiboken6"
+root = true
