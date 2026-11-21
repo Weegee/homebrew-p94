@@ -1,5 +1,12 @@
 # Änderungsprotokoll
 
+## Unveröffentlicht
+
+- `p94-brew-bootstrap` bindet den Tap `weegee/p94` von GitHub ein (`https://github.com/Weegee/homebrew-p94.git`).
+  Vorher nahm er den Projektordner, auf dem das Skript liegt, und stellte einen Tap von GitHub auf diesen Ordner um.
+  Zeigt `origin` des Tap-Klons auf eine andere Quelle, nennt `--dry-run` das und stellt der Lauf auf GitHub um. Neu:
+  `--tap-from-project` nimmt den Projektordner, wenn du den Tap bewusst daraus einbinden willst.
+
 ## 20261115.01 (2026-11-15)
 
 Erster öffentlicher Stand: Der Tap `weegee/p94` liegt jetzt auf GitHub (`brew tap weegee/p94`).

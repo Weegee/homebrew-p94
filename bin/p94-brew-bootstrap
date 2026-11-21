@@ -13,6 +13,7 @@ VERSION=$(<"$PROJECT_DIR/VERSION")
 PREFIX=/home/linuxbrew/.linuxbrew
 BREW=$PREFIX/bin/brew
 TAP=weegee/p94
+TAP_URL=https://github.com/Weegee/homebrew-p94.git
 # Homebrew/install pinned to one commit; the checksums come from research.md 3.1.
 INSTALL_COMMIT=959bdd728192d78c47287c177796c3d86d111f09
 INSTALL_SHA256=5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148
@@ -49,7 +50,7 @@ Aufruf: p94-brew-bootstrap [OPTIONEN]
         p94-brew-bootstrap --uninstall [-y] [OPTIONEN]
 
 Richtet Homebrew in /home/linuxbrew/.linuxbrew ein, bindet
-den lokalen Tap weegee/p94 und die Shell ein und
+den Tap weegee/p94 (von GitHub) und die Shell ein und
 installiert Toolchain, base-devel und die Prüfwerkzeuge.
 Jeder Schritt prüft zuerst, ob er schon erledigt ist;
 ein zweiter Lauf ändert nichts.
@@ -58,6 +59,8 @@ Optionen:
   -n, --dry-run      zeigt jeden Schritt, ändert nichts
       --push         auch den chezmoi-Commit pushen
       --no-chezmoi   Shell-Einbindung überspringen
+      --tap-from-project
+                     Tap aus diesem Projektordner statt von GitHub
       --uninstall    alles entfernen, was er angelegt hat
   -y, --yes          ohne Rückfrage
   -q, --quiet        nur Fehler ausgeben
@@ -75,7 +78,7 @@ Exit-Status: 0 Erfolg, 1 Fehler, 2 falscher Aufruf.
 EOF
 }
 
-DRY_RUN=0 QUIET=0 VERBOSE=0 YES=0 PUSH=0 NO_CHEZMOI=0 UNINSTALL=0
+DRY_RUN=0 QUIET=0 VERBOSE=0 YES=0 PUSH=0 NO_CHEZMOI=0 UNINSTALL=0 TAP_FROM_PROJECT=0
 args=()
 while (($#)); do
     case $1 in
@@ -84,6 +87,7 @@ while (($#)); do
         -n | --dry-run) DRY_RUN=1 ;;
         --push) PUSH=1 ;;
         --no-chezmoi) NO_CHEZMOI=1 ;;
+        --tap-from-project) TAP_FROM_PROJECT=1 ;;
         --uninstall) UNINSTALL=1 ;;
         -y | --yes) YES=1 ;;
         -q | --quiet) QUIET=1 ;;
@@ -283,9 +287,21 @@ step_homebrew() {
     fi
 }
 
+# tap_norm SOURCE: a path as real path, a URL without trailing .git or slash, so that two names compare equal; paths by real path, URLs without trailing .git or slash.
+tap_norm() {
+    local s=${1/#git@github.com:/https:\/\/github.com\/}
+    if [[ -d $s ]]; then
+        readlink -f "$s"
+    else
+        s=${s%/}
+        printf '%s' "${s%.git}"
+    fi
+}
+
 step_tap() {
     local dir origin want branch before after
-    want=$(readlink -f "$PROJECT_DIR")
+    want=$TAP_URL
+    ((TAP_FROM_PROJECT)) && want=$(readlink -f "$PROJECT_DIR")
     if [[ ! -x $BREW ]]; then
         result_would "würde einbinden aus $want (Homebrew fehlt noch)"
         return 0
@@ -301,13 +317,13 @@ step_tap() {
         result_changed "eingebunden aus $want"
         return 0
     fi
-    origin=$(readlink -f "$(git -C "$dir" remote get-url origin)")
+    origin=$(git -C "$dir" remote get-url origin)
     if [[ -n $(git -C "$dir" status --porcelain) ]]; then
         fail "der Tap-Klon $dir hat uncommittete Änderungen; prüfen mit: git -C $dir status"
     fi
     branch=$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
     branch=${branch#origin/}
-    if [[ $origin == "$want" ]]; then
+    if [[ $(tap_norm "$origin") == "$(tap_norm "$want")" ]]; then
         if ((DRY_RUN)); then
             result_done "schon eingebunden ($dir)"
             return 0
@@ -843,9 +859,12 @@ UN_TITLES=(Rückfrage Links Shell Vertrauen Homebrew Ordner Zustand)
 
 # --- main ---------------------------------------------------------------------------------------
 
-if ((UNINSTALL)); then
-    run_steps UN_STEPS UN_TITLES
-else
-    run_steps STEPS TITLES
+# Sourced (by the tests), only the functions are defined.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    if ((UNINSTALL)); then
+        run_steps UN_STEPS UN_TITLES
+    else
+        run_steps STEPS TITLES
+    fi
+    summary
 fi
-summary

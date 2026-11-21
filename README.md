@@ -232,8 +232,9 @@ der Paketdatenbank weicht vom Abbild ab, meldet der Befehl den Konflikt; schlie�
 
 ### Homebrew einrichten
 
-`bin/p94-brew-bootstrap` installiert Homebrew nach `/home/linuxbrew/.linuxbrew`, bindet den Tap und die Shell ein und
-richtet Toolchain und Brewfile ein. Voraussetzungen: SteamOS 3.9, ein normaler Benutzer (nicht root), `git`, `curl`,
+`bin/p94-brew-bootstrap` installiert Homebrew nach `/home/linuxbrew/.linuxbrew`, bindet den Tap von GitHub und die Shell
+ein und richtet Toolchain und Brewfile ein. Mit `--tap-from-project` bindet er den Tap stattdessen aus dem Projektordner
+ein, etwa zum Prüfen eigener Änderungen. Voraussetzungen: SteamOS 3.9, ein normaler Benutzer (nicht root), `git`, `curl`,
 `bsdtar` und `/usr/bin/python3` aus dem Abbild. `sudo` braucht der Bootstrap einmal, um `/home/linuxbrew` anzulegen. Er
 bindet Homebrew über die chezmoi-Quelle (`~/.local/share/chezmoi`) ein und lässt `~/.bash_profile` unverändert.
 
