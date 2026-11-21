@@ -1,6 +1,6 @@
 # Änderungsprotokoll
 
-## Unveröffentlicht
+## 20261121.01 (2026-11-21)
 
 - **Inkompatibel:** `p94-brew-bootstrap` bindet den Tap `weegee/p94` von GitHub ein
   (`https://github.com/Weegee/homebrew-p94.git`) und stellt einen Tap aus dem Projektordner auf GitHub um. Wenn du den
