@@ -60,7 +60,7 @@ Optionen:
       --push         auch den chezmoi-Commit pushen
       --no-chezmoi   Shell-Einbindung überspringen
       --tap-from-project
-                     Tap aus diesem Projektordner statt von GitHub
+                     Tap aus dem Projektordner statt GitHub
       --uninstall    alles entfernen, was er angelegt hat
   -y, --yes          ohne Rückfrage
   -q, --quiet        nur Fehler ausgeben
@@ -287,14 +287,17 @@ step_homebrew() {
     fi
 }
 
-# tap_norm SOURCE: a path as real path, a URL without trailing .git or slash, so that two names compare equal; paths by real path, URLs without trailing .git or slash.
+# tap_norm SOURCE: paths as real path, URLs without trailing slash or .git (GitHub lower-cased),
+# so equal sources compare equal.
 tap_norm() {
     local s=${1/#git@github.com:/https:\/\/github.com\/}
     if [[ -d $s ]]; then
         readlink -f "$s"
     else
         s=${s%/}
-        printf '%s' "${s%.git}"
+        s=${s%.git}
+        [[ ${s,,} != https://github.com/* ]] || s=${s,,} # GitHub names ignore case
+        printf '%s' "$s"
     fi
 }
 

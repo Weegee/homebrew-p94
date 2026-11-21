@@ -106,7 +106,12 @@ class TapStepTest(unittest.TestCase):
     def test_url_spelling_is_not_a_difference(self):
         want = "https://github.com/Weegee/homebrew-p94.git"
         self.clone_tap(str(self.github))
-        for origin in (want[:-4], want[:-4] + "/", "git@github.com:Weegee/homebrew-p94.git"):
+        for origin in (
+            want[:-4],
+            want[:-4] + "/",
+            "git@github.com:Weegee/homebrew-p94.git",
+            "https://github.com/weegee/homebrew-p94",
+        ):
             with self.subTest(origin=origin):
                 git(self.tap, "remote", "set-url", "origin", origin)
                 out = self.step(dry_run=True, url=want)
