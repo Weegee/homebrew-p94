@@ -124,18 +124,37 @@ check_cmd() {
     report EIN-1 "$name" "ohne Eingabe keine Rückfrage (Exit $rc mit </dev/null)" "$((rc != 0))"
 }
 
+# run_signalled SIGNAL CMD ARGS...: starts CMD, sends SIGNAL as soon as CMD runs a child process
+# (the call is then in the middle of its work, not at its start or end), at the latest after
+# 10 s, and sets rc to the exit status. No fixed delay: a late start under load or a call that ends
+# early does not shift the point of the signal.
+run_signalled() {
+    local sig=$1 pid i
+    shift
+    set -m # own process group and default signal handling for the background call
+    "$@" >/dev/null 2>&1 </dev/null &
+    pid=$!
+    set +m
+    for ((i = 0; i < 500; i++)); do # 500 x 20 ms: at least 10 s
+        kill -0 "$pid" 2>/dev/null || break
+        pgrep -P "$pid" >/dev/null 2>&1 && break
+        sleep 0.02
+    done
+    kill -s "$sig" "$pid" 2>/dev/null
+    wait "$pid"
+    rc=$?
+}
+
 # check_signals NAME ARGS...: SIG-1 and SIG-4 with a call that runs a few seconds
 check_signals() {
     local name=$1 exe=$2
     shift 2
     local rc
-    timeout --preserve-status -s INT 2 "$REPO/$exe" "$@" >/dev/null 2>&1 </dev/null
-    rc=$?
+    run_signalled INT "$REPO/$exe" "$@"
     s=1
     if [[ $rc -eq 130 ]]; then s=0; fi
     report SIG-1 "$name" "Ctrl+C beendet mit Exit $rc (erwartet 130)" "$s"
-    timeout --preserve-status -s TERM 2 "$REPO/$exe" "$@" >/dev/null 2>&1 </dev/null
-    rc=$?
+    run_signalled TERM "$REPO/$exe" "$@"
     s=1
     if [[ $rc -eq 143 ]]; then s=0; fi
     report SIG-4 "$name" "SIGTERM beendet mit Exit $rc (erwartet 143)" "$s"
