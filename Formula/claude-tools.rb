@@ -4,8 +4,8 @@ class ClaudeTools < Formula
   desc "Befehle für Claude Code: Modellwahl, Audits, Recherche und Wissensabgleich"
   homepage "https://github.com/Weegee/p94"
   # Vorlage: Die CI des Taps Weegee/homebrew-p94 trägt url und sha256 der Veröffentlichung ein.
-  url "https://github.com/Weegee/p94/releases/download/src/claude-tools-20261121.04.tar.gz"
-  sha256 "6dd7a0f528f99b64b3c1b332b75fca05047c3726df442807d9a637b024536e36"
+  url "https://github.com/Weegee/p94/releases/download/src/claude-tools-20261123.02.tar.gz"
+  sha256 "1a6eda1fb0b92427d98b885a636001aa58bd902f667f8936e76c198d494708ad"
   license "GPL-3.0-or-later"
 
   depends_on "make" => :build
@@ -15,7 +15,7 @@ class ClaudeTools < Formula
     python = formula_opt_bin("python@3.14")/"python3.14"
     system "make", "install", "PREFIX=#{prefix}", "PYTHON=#{python}",
            "RUNTIME_BINDIR=#{opt_bin}", "RUNTIME_PKGLIBDIR=#{opt_lib}/claude-tools"
-    rewrite_shebang detected_python_shebang, bin/"claude-brain", bin/"claude-sdk"
+    rewrite_shebang detected_python_shebang, bin/"claude-brain", bin/"claude-sdk", bin/"claude-jobs", bin/"claude-post-ui", bin/"claude-post-gui"
     (share/"p94-links").install "packaging/homebrew/claude-tools.links"
   end
 
