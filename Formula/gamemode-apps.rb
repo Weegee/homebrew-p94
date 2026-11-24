@@ -1,8 +1,8 @@
 class GamemodeApps < Formula
   desc "Steam-Verknüpfungen für Apps im Game Mode von SteamOS, je Steam-Konto"
   homepage "https://github.com/Weegee/p94"
-  url "https://github.com/Weegee/p94/releases/download/src/gamemode-apps-20261124.01.tar.gz"
-  sha256 "575e066b3fb7bfb7f226ac499f480bc069c56604d976ca9061e760602e8f76ed"
+  url "https://github.com/Weegee/p94/releases/download/src/gamemode-apps-20261124.02.tar.gz"
+  sha256 "b25a0f9d84360b573065043e5b70d7dc4dcd4e52aa5e1e48b2d150c3caf1e385"
   license "GPL-3.0-or-later"
 
   depends_on "make" => :build
