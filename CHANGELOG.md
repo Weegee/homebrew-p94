@@ -1,6 +1,6 @@
 # Änderungsprotokoll
 
-## Unveröffentlicht
+## 20261124.01 (2026-11-24)
 
 - Alle Befehle zeigen mit `--help all` zusätzlich Einzelheiten; `-h` und `--help` bleiben kurz.
 - Die Dokumentation liegt nach Lesern getrennt: README als Überblick, je Befehl eine Seite unter `docs/`, die
