@@ -4,8 +4,8 @@ class ClaudeTools < Formula
   desc "Befehle für Claude Code: Modellwahl, Audits, Recherche und Wissensabgleich"
   homepage "https://github.com/Weegee/p94"
   # Vorlage: Die CI des Taps Weegee/homebrew-p94 trägt url und sha256 der Veröffentlichung ein.
-  url "https://github.com/Weegee/p94/releases/download/src/claude-tools-20261124.01.tar.gz"
-  sha256 "76605b064ba0ad21333808f6f35e99250cfbd8e9bfa06bd17d03e045b3b40998"
+  url "https://github.com/Weegee/p94/releases/download/src/claude-tools-20261124.03.tar.gz"
+  sha256 "31d4a40914618cfdb627dca222a16646ee8cba63d452b41b60ef0cf743a88dca"
   license "GPL-3.0-or-later"
 
   depends_on "make" => :build
