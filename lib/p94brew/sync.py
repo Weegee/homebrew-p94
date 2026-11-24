@@ -357,6 +357,12 @@ def _build_parser():
             f"  ~/{PROJECT_DEFAULT}). Veröffentlichen mit git push bleibt Handarbeit.\n\n"
             "Exit-Status: 0 Erfolg, 1 Fehler, 2 falscher Aufruf."
         ),
+        details=(
+            "Die Listen stehen in steamos/*.toml, die Formeln erzeugt der Befehl; ändere nie eine "
+            "Formel. Er committet nur im Projektordner, git push bleibt Handarbeit. Quellen ohne "
+            "Tag, ohne Vorlage oder ohne Zugriff meldet er als übersprungen. Seite: "
+            "docs/p94-sync.md."
+        ),
     )
     parser.usage = f"{PROG} [OPTIONEN] [QUELLE ...]"
     args = parser.add_argument_group("Argumente")

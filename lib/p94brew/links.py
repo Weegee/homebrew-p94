@@ -523,6 +523,13 @@ def _build_parser():
             "  brew p94-link --list\n\n"
             "Exit-Status: 0 Erfolg, 1 Fehler oder Konflikt, 2 falscher Aufruf."
         ),
+        details=(
+            "Format der Linkliste: share/p94-links/FORMEL.links, Zeilen TYP QUELLE [ZIEL] "
+            "[OPTION]. Typen: unit, skill, autostart, fontconfig, fish-conf, applications, "
+            "config, data. Der Befehl überschreibt nie eine fremde Datei: bei einem Konflikt "
+            "endet er mit Exit 1. Zustand: ~/.local/state/p94-link/state.json. Seite: "
+            "docs/p94-link.md."
+        ),
     )
     parser.usage = f"{PROG} [OPTIONEN] [FORMEL ...]"
     args = parser.add_argument_group("Argumente")

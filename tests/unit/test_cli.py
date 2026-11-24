@@ -160,6 +160,25 @@ class MiscTest(unittest.TestCase):
         self.assertIn("p94-test: Fehler: unbekannte Option: --nope", err.getvalue())
         self.assertIn("Hilfe: p94-test --help", err.getvalue())
 
+    def _help(self, *argv):
+        parser = cli.make_parser("p94-test", "Test", details="Genaueres hier.")
+        cli.add_common_options(parser, "1")
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx:
+            with contextlib.redirect_stdout(out):
+                parser.parse_args(list(argv))
+        self.assertEqual(ctx.exception.code, 0)
+        return out.getvalue()
+
+    def test_help_short_and_all(self):
+        short = self._help("--help")
+        self.assertEqual(short, self._help("-h"))
+        self.assertNotIn("Genaueres hier.", short)
+        self.assertIn("p94-test --help all", short)
+        full = self._help("--help", "all")
+        self.assertTrue(full.startswith(short))
+        self.assertIn("Einzelheiten:\nGenaueres hier.", full)
+
     def test_parser_invalid_choice(self):
         parser = cli.make_parser("p94-test", "Test")
         parser.add_argument("command", choices=("check", "setup"), metavar="check|setup")

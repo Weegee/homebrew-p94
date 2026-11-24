@@ -75,6 +75,20 @@ Beispiele:
   p94-brew-bootstrap --uninstall --dry-run
 
 Exit-Status: 0 Erfolg, 1 Fehler, 2 falscher Aufruf.
+
+Alle Einzelheiten: p94-brew-bootstrap --help all
+EOF
+}
+
+usage_all() {
+    usage
+    cat <<'EOF'
+
+Einzelheiten:
+Die neun Schritte: Voraussetzungen, Verzeichnis, Homebrew, Tap, Shell-Einbindung, Toolchain,
+Brewfile, Prüfwerkzeuge, Abschlussprüfung. sudo braucht er einmal für /home/linuxbrew.
+--uninstall entfernt Homebrew samt aller Formeln und /home/linuxbrew, auch Daten unter var;
+der Projektordner bleibt. Seite: docs/homebrew-einrichten.md.
 EOF
 }
 
@@ -82,7 +96,10 @@ DRY_RUN=0 QUIET=0 VERBOSE=0 YES=0 PUSH=0 NO_CHEZMOI=0 UNINSTALL=0 TAP_FROM_PROJE
 args=()
 while (($#)); do
     case $1 in
-        -h | --help) usage; exit 0 ;;
+        -h | --help)
+            if [[ ${2-} == all ]]; then usage_all; else usage; fi
+            exit 0
+            ;;
         -V | --version) printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
         -n | --dry-run) DRY_RUN=1 ;;
         --push) PUSH=1 ;;
@@ -371,7 +388,7 @@ toolchain_ok() {
 }
 
 # Homebrew refuses every source install while bin/gcc and bin/clang are missing, and the sysroot is what
-# provides bin/gcc. For that one install a temporary bin/clang link stands in (README, Toolchain).
+# provides bin/gcc. For that one install a temporary bin/clang link stands in (docs/p94-toolchain.md).
 install_sysroot() {
     local stub=$PREFIX/bin/clang gcc_bin made=0 rc=0
     if [[ ! -e $stub && ! -e $PREFIX/bin/gcc ]]; then
@@ -460,7 +477,7 @@ step_basedevel() {
 
 # The gems of brew style, audit and test have native extensions. Homebrew starts them with the search path
 # /usr/bin:/bin:/usr/sbin:/sbin (bin/brew), where it finds no compiler from the prefix; so bundle runs here
-# with the prefix in the path (README, Toolchain).
+# with the prefix in the path (docs/p94-toolchain.md).
 DEVTOOL_GROUPS='ast audit formula_test style'
 
 devtools_bundle() { # $@: bundle arguments

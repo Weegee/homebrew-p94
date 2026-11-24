@@ -564,6 +564,12 @@ def _build_parser():
             "~/.local/state/homebrew-umstieg/backup-JJJJMMTT-HHMMSS/ und löscht nichts.\n"
             "Exit-Status: 0 Erfolg, 1 Fehler, 2 falscher Aufruf."
         ),
+        details=(
+            "Umgestellt werden gh, node, neovim, diff-so-fancy, chezmoi, ethtool, turbostat und "
+            "vainfo. Er setzt eine chezmoi-Quelle voraus, deren Vorlagen er anpasst, und fragt "
+            "vor dem Umstellen einmal nach (-y überspringt die Frage). --rollback stellt die "
+            "neueste Sicherung wieder her. Seite: docs/homebrew-einrichten.md."
+        ),
     )
     parser.usage = f"{PROG} [OPTIONEN] [WERKZEUG ...]\n       {PROG} --rollback [ORDNER]"
     args = parser.add_argument_group("Argumente")

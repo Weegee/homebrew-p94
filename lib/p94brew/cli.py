@@ -187,19 +187,47 @@ class _Help(argparse.RawDescriptionHelpFormatter):
         return super().add_usage(usage, actions, groups, prefix or "Aufruf: ")
 
 
-def make_parser(prog: str, description: str, epilog: str | None = None) -> argparse.ArgumentParser:
-    """Parser with German usage prefix and error message; exit 2 on usage errors (KAN-3)."""
+class _HelpAction(argparse.Action):
+    """``-h`` and ``--help`` print the short help; ``--help all`` adds the details."""
+
+    def __init__(
+        self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None
+    ):
+        super().__init__(
+            option_strings, dest=dest, default=default, nargs="?", choices=("all",), help=help
+        )
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        text = parser.format_help()
+        details = getattr(parser, "details", None)
+        if values == "all" and details:
+            width = max(min(terminal_width(), 100), 40)
+            text += "\nEinzelheiten:\n" + textwrap.fill(" ".join(details.split()), width) + "\n"
+        sys.stdout.write(text)
+        parser.exit()
+
+
+def make_parser(
+    prog: str, description: str, epilog: str | None = None, details: str | None = None
+) -> argparse.ArgumentParser:
+    """Parser with German usage prefix and error message; exit 2 on usage errors.
+
+    ``details`` is the text that ``--help all`` adds after the short help.
+    """
+    full_epilog = (epilog + "\n\n" if epilog else "") + f"Alle Einzelheiten: {prog} --help all"
     kwargs: dict = {
         "prog": prog,
         "description": description,
-        "epilog": epilog,
+        "epilog": full_epilog,
         "formatter_class": _Help,
         "add_help": False,
         "allow_abbrev": False,
     }
     if sys.version_info >= (3, 14):
         kwargs.update(suggest_on_error=True, color=True)
-    return _Parser(**kwargs)
+    parser = _Parser(**kwargs)
+    parser.details = details
+    return parser
 
 
 def add_common_options(parser: argparse.ArgumentParser, version: str) -> None:
@@ -213,7 +241,7 @@ def add_common_options(parser: argparse.ArgumentParser, version: str) -> None:
         default=os.environ.get("HOMEBREW_P94_COLOR", "auto"),
         help="Farbe: auto, always oder never (Vorgabe: auto)",
     )
-    group.add_argument("-h", "--help", action="help", help="diese Hilfe zeigen")
+    group.add_argument("-h", "--help", action=_HelpAction, help="diese Hilfe zeigen")
     group.add_argument(
         "-V", "--version", action="version", version=f"{parser.prog} {version}",
         help="Version zeigen",

@@ -179,6 +179,11 @@ def _build_parser():
             "Exit-Status: 0 alles bestanden, 1 Prüfung fehlgeschlagen oder Fehler,\n"
             "2 falscher Aufruf."
         ),
+        details=(
+            "Geprüft werden brew style, brew audit, brew install --build-from-source, brew test "
+            "und brew p94-link --dry-run im Wegwerf-Tap p94try/try; --keep lässt ihn stehen (brew "
+            "untap p94try/try räumt ab). Seite: docs/entwicklung/formel-konvention.md."
+        ),
     )
     parser.usage = f"{PROG} [OPTIONEN] REPO [FORMEL ...]"
     args = parser.add_argument_group("Argumente")

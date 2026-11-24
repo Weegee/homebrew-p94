@@ -454,6 +454,12 @@ def _build_parser():
             "  brew p94-toolchain gcc-upgrade --dry-run\n\n"
             "Exit-Status: 0 Erfolg, 1 Fehler oder fehlgeschlagene Prüfung, 2 falscher Aufruf."
         ),
+        details=(
+            "check prüft gcc, Anheftung, Sysroot, Header und eine Probe; Exit 1, wenn etwas "
+            "fehlt. setup schreibt specs-Datei, crt-Links und clang-Konfiguration; gcc-upgrade "
+            "löst die Anheftung, installiert mit --skip-post-install, richtet neu ein und heftet "
+            "wieder an. clang++ ist nicht Teil der Prüfung. Seite: docs/p94-toolchain.md."
+        ),
     )
     parser.usage = f"{PROG} [AKTION] [OPTIONEN]"
     args = parser.add_argument_group("Unterbefehle")

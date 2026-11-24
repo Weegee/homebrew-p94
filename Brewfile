@@ -1,6 +1,6 @@
 # Brewfile: base-devel und Werkzeuge für SteamOS (Tap weegee/p94).
 # Installieren mit bin/p94-brew-bootstrap, nicht direkt: gcc braucht vorher
-# --skip-post-install und brew pin (siehe README, Toolchain).
+# --skip-post-install und brew pin (siehe docs/p94-toolchain.md).
 
 # C und C++
 brew "gcc"

@@ -1,5 +1,11 @@
 # Änderungsprotokoll
 
+## Unveröffentlicht
+
+- Alle Befehle zeigen mit `--help all` zusätzlich Einzelheiten; `-h` und `--help` bleiben kurz.
+- Die Dokumentation liegt nach Lesern getrennt: README als Überblick, je Befehl eine Seite unter `docs/`, die
+  Formel-Konvention unter `docs/entwicklung/`.
+
 ## 20261121.01 (2026-11-21)
 
 - **Inkompatibel:** `p94-brew-bootstrap` bindet den Tap `weegee/p94` von GitHub ein
