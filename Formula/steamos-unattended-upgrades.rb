@@ -1,8 +1,8 @@
 class SteamosUnattendedUpgrades < Formula
   desc "Automatische Updates für SteamOS, Homebrew und Flatpak mit Status-Anzeige"
   homepage "https://github.com/Weegee/p94"
-  url "https://github.com/Weegee/p94/releases/download/src/steamos-unattended-upgrades-20261115.01.tar.gz"
-  sha256 "48bd89375f5daa14c9ca47aa9a8f1f40b3e81f6f2fc9b81252115ad3fef2b41e"
+  url "https://github.com/Weegee/p94/releases/download/src/steamos-unattended-upgrades-20261124.01.tar.gz"
+  sha256 "c9cf1f93fbee65f22bd9808683b063a99bd75b7d39c9255fd0eeb1ae03fc7d20"
   license "GPL-3.0-or-later"
 
   depends_on "make" => :build
