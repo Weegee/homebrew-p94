@@ -1,8 +1,8 @@
 class GamemodeApps < Formula
   desc "Steam-Verknüpfungen für Apps im Game Mode von SteamOS, je Steam-Konto"
   homepage "https://github.com/Weegee/p94"
-  url "https://github.com/Weegee/p94/releases/download/src/gamemode-apps-20261115.01.tar.gz"
-  sha256 "afb6080568ee67ef93558d4282415f6daebf8226d72f2d3ef657824744a757bc"
+  url "https://github.com/Weegee/p94/releases/download/src/gamemode-apps-20261124.01.tar.gz"
+  sha256 "575e066b3fb7bfb7f226ac499f480bc069c56604d976ca9061e760602e8f76ed"
   license "GPL-3.0-or-later"
 
   depends_on "make" => :build
@@ -15,6 +15,7 @@ class GamemodeApps < Formula
   def install
     system "make", "install", "PREFIX=#{prefix}", "RUNTIME_BINDIR=#{HOMEBREW_PREFIX}/bin",
            "RUNTIME_DATADIR=#{opt_share}/gamemode-apps",
+           "RUNTIME_DOCDIR=#{opt_share}/doc/gamemode-apps",
            "RUNTIME_APPSD=#{HOMEBREW_PREFIX}/share/gamemode-apps/apps.d"
     (share/"p94-links").install "packaging/homebrew/gamemode-apps.links"
   end
@@ -27,7 +28,7 @@ class GamemodeApps < Formula
       Der nächste Steam-Start im Game Mode legt die Verknüpfungen an. YouTube und die Web-Dienste brauchen
       im Desktop-Modus:
         flatpak install --system flathub rocks.shy.VacuumTube com.google.Chrome
-      Umzug von ~/.local/share/discord-gamemode: #{opt_share}/doc/gamemode-apps/migration.md
+      Umzug von ~/.local/share/discord-gamemode: #{opt_share}/doc/gamemode-apps/docs/entwicklung/migration.md
     EOS
   end
 
